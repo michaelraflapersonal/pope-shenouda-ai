@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>اسأل البابا شنوده (ذكاء اصطناعي)</title>
+<style>
+:root{--bg:#faf7f2;--fg:#231f1a;--muted:#6b6358;--card:#fff;--line:#e4dccf;--accent:#7a1f1f;--warn:#fff4d6}
+@media (prefers-color-scheme:dark){:root{--bg:#171513;--fg:#efe9df;--muted:#a79d8f;--card:#211e1b;--line:#37322c;--accent:#e0a3a3;--warn:#3a3118}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.9 "Noto Naskh Arabic","Amiri",Tahoma,serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:.6em 0 .2em;color:var(--accent)}
+.banner{background:var(--warn);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:.9rem;line-height:1.7}
+.banner .en{direction:ltr;text-align:left;font:14px/1.5 system-ui,sans-serif;color:var(--muted);margin-top:6px}
+form{display:flex;gap:8px;margin:16px 0}
+textarea{flex:1;min-height:3.2em;padding:10px;font:inherit;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+button{padding:0 20px;font:inherit;border:0;border-radius:10px;background:var(--accent);color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.quote{border-inline-start:4px solid var(--accent);padding:4px 12px;margin:10px 0}
+.cite{color:var(--muted);font-size:.85rem}
+.en{direction:ltr;text-align:left;font:16px/1.6 system-ui,sans-serif}
+details{margin-top:8px;font-size:.9rem}
+small{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>اسأل البابا شنوده</h1>
+<div class="banner">هذا برنامج ذكاء اصطناعي يجيب من كتب البابا شنوده الثالث ويقتبس منها مع ذكر الكتاب والصفحة. <b>ليس هو البابا شنوده</b> ولا يمثل الكنيسة، ولا يغني عن أب اعترافك.
+<div class="en">An AI that answers from Pope Shenouda III's books and quotes them with book and page. It is not Pope Shenouda and does not speak for the Church.</div></div>
+<div id="code" hidden class="card">رمز الدخول: <input id="codeInput" type="password" style="font:inherit"></div>
+<form id="f"><textarea id="q" placeholder="اكتب سؤالك بالعربية أو الإنجليزية" required></textarea><button id="go">اسأل</button></form>
+<div id="out" aria-live="polite"></div>
+<small id="stat"></small>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const hdr=()=>({"Content-Type":"application/json","X-Access-Code":$("codeInput").value||localStorage.getItem("code")||""});
+const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+fetch("/api/status",{headers:hdr()}).then(r=>r.json()).then(s=>{if(s.needs_code)$("code").hidden=false;$("stat").textContent=s.books?`المكتبة: ${s.books} كتاباً`:""}).catch(()=>{$("code").hidden=false});
+$("f").onsubmit=async e=>{
+  e.preventDefault();$("go").disabled=true;$("out").innerHTML='<div class="card">جارٍ البحث في الكتب…</div>';
+  if($("codeInput").value)localStorage.setItem("code",$("codeInput").value);
+  try{
+    const r=await fetch("/api/ask",{method:"POST",headers:hdr(),body:JSON.stringify({question:$("q").value})});
+    const d=await r.json(); if(!r.ok)throw new Error(d.detail||d.error||r.status);
+    let h='<div class="card">'+esc(d.answer_ar).replace(/\n/g,"<br>");
+    if(d.answer_en)h+='<div class="en"><hr>'+esc(d.answer_en).replace(/\n/g,"<br>")+'<br><small>Machine translation of the Arabic above.</small></div>';
+    d.quotes.forEach(q=>h+=`<div class="quote">« ${esc(q.text)} »<div class="cite">${esc(q.cite)}</div></div>`);
+    if(d.sources.length)h+='<details><summary>النصوص المستخدمة</summary>'+d.sources.map(s=>`<p><b>[${s.n}] ${esc(s.cite)}</b><br>${esc(s.text)}</p>`).join("")+'</details>';
+    h+=`<p class="cite">${esc(d.disclaimer_ar)}</p></div>`;
+    if(d.crisis)h='<div class="card">إن كنت تمر بضيقة شديدة أو تفكر في إيذاء نفسك، فتحدث الآن مع أب اعترافك أو شخص تثق به، أو اتصل بخدمات الطوارئ.</div>'+h;
+    $("out").innerHTML=h;
+  }catch(err){$("out").innerHTML='<div class="card">تعذر الإجابة الآن ('+esc(String(err.message))+').</div>'}
+  $("go").disabled=false;
+};
+</script>
+</body>
+</html>
