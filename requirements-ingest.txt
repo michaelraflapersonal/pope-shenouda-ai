@@ -1,0 +1,5 @@
+# building the library (run on your machine or a Cloud Run job, not needed to serve)
+-r requirements.txt
+pymupdf>=1.24
+google-cloud-documentai>=2.0
+pytest>=8

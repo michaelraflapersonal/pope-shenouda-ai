@@ -1,0 +1,5 @@
+# serving (Cloud Run image)
+fastapi>=0.110
+uvicorn>=0.29
+anthropic[vertex]>=2.0
+google-genai>=1.0

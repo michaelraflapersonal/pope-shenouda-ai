@@ -1,0 +1,13 @@
+# Books and everything derived from them stay private: never commit them.
+data/
+*.pdf
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+library/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
