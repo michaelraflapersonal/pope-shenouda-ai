@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 from .arabic import normalize_search
-from .extract import LOW_QUALITY, Page, extract_pdf
+from .extract import LOW_QUALITY, extract_pdf, reocr_pages
 from .store import DATA_DIR, connect, delete_book
 
 CHUNK_WORDS = 260
@@ -97,12 +97,12 @@ def chunk_pages(pages: list[dict]) -> list[dict]:
 
 
 def ingest_book(con, path: Path, lang: str, ocr: str, force: bool, workers: int | None,
-                rechunk: bool = False) -> str:
+                rechunk: bool = False, reocr_below: float = 0.0) -> str:
     title = path.stem
     slug = slugify(lang, title)
     digest = sha256(path)
     row = con.execute("SELECT sha256 FROM books WHERE slug=?", (slug,)).fetchone()
-    if row and row["sha256"] == digest and not force and not rechunk:
+    if row and row["sha256"] == digest and not force and not rechunk and not reocr_below:
         return "unchanged"
 
     cache = DATA_DIR / "pages" / f"{slug}.json"
@@ -111,6 +111,11 @@ def ingest_book(con, path: Path, lang: str, ocr: str, force: bool, workers: int 
         c = json.loads(cache.read_text())
         if c.get("sha256") == digest:
             pages = c["pages"]
+    if pages is not None and reocr_below:
+        n = reocr_pages(str(path), pages, reocr_below, ocr, lang, workers)
+        if n:
+            cache.write_text(json.dumps({"sha256": digest, "pages": pages}, ensure_ascii=False))
+        rechunk = True
     if pages is None:
         extracted = extract_pdf(str(path), lang=lang, ocr_engine=ocr, workers=workers)
         pages = [p.__dict__ for p in extracted]
@@ -142,9 +147,11 @@ def main(argv=None):
     ap.add_argument("--lang", choices=["ar", "en", "both"], default="ar")
     ap.add_argument("--only", help="substring of the title to process")
     ap.add_argument("--limit", type=int)
-    ap.add_argument("--ocr", choices=["tesseract", "claude"], default="tesseract")
+    ap.add_argument("--ocr", choices=["tesseract", "documentai", "claude"], default="tesseract")
     ap.add_argument("--workers", type=int)
     ap.add_argument("--force", action="store_true", help="redo extraction/OCR too")
+    ap.add_argument("--reocr-below", type=float, default=0.0, metavar="Q",
+                    help="re-OCR cached pages scoring below Q (e.g. 0.6) with --ocr engine, then rebuild")
     ap.add_argument("--rechunk", action="store_true", help="rebuild chunks and index from cached page text")
     a = ap.parse_args(argv)
 
@@ -160,7 +167,7 @@ def main(argv=None):
                 break
             t = time.time()
             try:
-                msg = ingest_book(con, path, lang, a.ocr, a.force, a.workers, a.rechunk)
+                msg = ingest_book(con, path, lang, a.ocr, a.force, a.workers, a.rechunk, a.reocr_below)
             except Exception as exc:
                 msg = f"FAILED: {exc}"
             done += 1

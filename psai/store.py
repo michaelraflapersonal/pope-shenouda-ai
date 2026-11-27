@@ -44,6 +44,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(norm, tokenize='unicode
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     p = Path(path or DB_PATH)
+    if os.environ.get("PSAI_READONLY") == "1":
+        # Serving from a read-only mount (Cloud Storage volume on Cloud Run): no locks, no writes.
+        con = sqlite3.connect(f"file:{p}?mode=ro&immutable=1", uri=True, check_same_thread=False)
+        con.row_factory = sqlite3.Row
+        return con
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p, check_same_thread=False)
     con.row_factory = sqlite3.Row

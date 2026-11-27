@@ -14,15 +14,12 @@ The result is a plain dict so a voice or avatar layer can later consume only
 
 from __future__ import annotations
 
-import json
-import os
 import re
 from dataclasses import dataclass
 
+from . import llm
 from .arabic import normalize_letters, strip_diacritics
 from .search import Passage, search
-
-MODEL = os.environ.get("PSAI_MODEL", "claude-opus-5-5")
 
 DISCLAIMER_AR = "هذه إجابة من برنامج ذكاء اصطناعي مبنية على كتب البابا شنوده الثالث، وليست كلامه هو ولا تمثل الكنيسة. راجع أب اعترافك في أمورك الروحية."
 DISCLAIMER_EN = "This answer comes from an AI built on Pope Shenouda III's books. It is not Pope Shenouda and does not speak for the Church. For personal spiritual guidance, please speak to your priest."
@@ -75,29 +72,8 @@ ANSWER_SCHEMA = {
 }
 
 
-def _client():
-    import anthropic
-
-    return anthropic.Anthropic()
-
-
-def _call(client, system: str, user: str, schema: dict, effort: str, max_tokens: int = 8000) -> dict:
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-    )
-    if resp.stop_reason == "refusal":
-        return {}
-    text = next((b.text for b in resp.content if b.type == "text"), "{}")
-    return json.loads(text)
-
-
-def plan(client, question: str) -> dict:
-    return _call(
-        client,
+def plan(question: str) -> dict:
+    return llm.generate_json(
         "You prepare searches over Arabic books. Detect the question's language, write 2 to 4 Arabic search queries "
         "(keywords or short phrases, in the vocabulary Pope Shenouda III used, e.g. 'التوبة', 'الاتضاع') that would "
         "find passages answering it, and flag crisis=true if the message suggests grief, crisis or self-harm.",
@@ -145,9 +121,8 @@ class Result:
         return self.__dict__.copy()
 
 
-def ask(question: str, k: int = 8, client=None, con=None) -> Result:
-    client = client or _client()
-    pl = plan(client, question) or {"language": "ar", "search_queries_ar": [question], "crisis": False}
+def ask(question: str, k: int = 8, con=None) -> Result:
+    pl = plan(question) or {"language": "ar", "search_queries_ar": [question], "crisis": False}
     lang = pl["language"]
     passages = search([question] + pl["search_queries_ar"], k=k, con=con)
     notes: list[str] = []
@@ -155,8 +130,7 @@ def ask(question: str, k: int = 8, client=None, con=None) -> Result:
         return Result(False, lang, NOT_FOUND_AR, NOT_FOUND_EN if lang == "en" else "", [], [], pl["crisis"], ["no passages"])
 
     user = f"Question ({lang}):\n{question}\n\nPassages:\n\n{build_context(passages)}"
-    out = _call(client, SYSTEM_PROMPT, user,
-                ANSWER_SCHEMA, "medium", 6000)
+    out = llm.generate_json(SYSTEM_PROMPT, user, ANSWER_SCHEMA, "medium", 6000)
     quotes, dropped = verify_quotes(out.get("quotes", []), passages)
     if dropped:
         notes.append(f"{dropped} quote(s) removed: not found word for word in the cited passage")

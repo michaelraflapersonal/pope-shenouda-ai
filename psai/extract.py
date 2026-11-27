@@ -9,6 +9,7 @@ images with no text layer at all, so OCR is the common path.
 
 OCR engines:
 * ``tesseract`` (default): local, free, needs ``tesseract-ocr`` + ``tesseract-ocr-ara``.
+* ``documentai``: Google Document AI (best on Arabic scans; set PSAI_DOCAI_PROCESSOR).
 * ``claude``: sends the page image to Claude for transcription. Slower and
   paid, but much more accurate on scripture references and similar letters.
 """
@@ -161,7 +162,28 @@ def ocr_claude(png: bytes, model: str | None = None) -> str:
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
+_docai = {}
+
+
+def ocr_documentai(png: bytes) -> str:
+    """Google Document AI OCR processor. Set PSAI_DOCAI_PROCESSOR to the processor's full
+    resource name: projects/PROJECT/locations/LOCATION/processors/ID (type: Enterprise Document OCR)."""
+    from google.api_core.client_options import ClientOptions
+    from google.cloud import documentai
+
+    name = os.environ["PSAI_DOCAI_PROCESSOR"]
+    if "client" not in _docai:
+        location = name.split("/")[3]
+        _docai["client"] = documentai.DocumentProcessorServiceClient(
+            client_options=ClientOptions(api_endpoint=f"{location}-documentai.googleapis.com"))
+    req = documentai.ProcessRequest(
+        name=name, raw_document=documentai.RawDocument(content=png, mime_type="image/png"))
+    return _docai["client"].process_document(request=req).document.text
+
+
 def _ocr(png: bytes, engine: str, lang: str) -> str:
+    if engine == "documentai":
+        return ocr_documentai(png)
     if engine == "claude":
         return ocr_claude(png)
     return ocr_tesseract(png, "ara" if lang == "ar" else "eng")
@@ -198,7 +220,7 @@ def extract_pdf(path: str, lang: str = "ar", ocr_engine: str = "tesseract",
         except Exception as exc:  # keep going; the page is marked empty
             return i, f"__OCR_ERROR__ {exc}"
 
-    workers = workers or (4 if ocr_engine == "claude" else os.cpu_count() or 2)
+    workers = workers or (4 if ocr_engine in ("claude", "documentai") else os.cpu_count() or 2)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for i, raw in pool.map(run, to_ocr):
             if raw.startswith("__OCR_ERROR__"):
@@ -237,3 +259,32 @@ def remove_running_headers(pages: list[Page]) -> list[Page]:
 
 def page_to_dict(p: Page) -> dict:
     return asdict(p)
+
+
+def reocr_pages(path: str, pages: list[dict], threshold: float, engine: str, lang: str = "ar",
+                workers: int | None = None, dpi: int = 300) -> int:
+    """Re-run OCR with a better engine on cached pages scoring below ``threshold``. Returns pages improved."""
+    todo = [p for p in pages if p["quality"] < threshold and p["method"] != f"ocr-{engine}"]
+    if not todo:
+        return 0
+    doc = pymupdf.open(path)
+    pngs = {p["pdf_page"]: doc[p["pdf_page"] - 1].get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY).tobytes("png")
+            for p in todo}
+    doc.close()
+
+    def run(p):
+        try:
+            return p, _ocr(pngs[p["pdf_page"]], engine, lang)
+        except Exception:
+            return p, ""
+
+    improved = 0
+    with ThreadPoolExecutor(max_workers=workers or 4) as pool:
+        for p, raw in pool.map(run, todo):
+            text = _strip_noise(clean_display(raw))
+            printed, body = find_printed_page(text)
+            q = text_quality(body)
+            if body.strip() and q > p["quality"]:
+                p.update(text=body, quality=q, method=f"ocr-{engine}", printed_page=printed or p["printed_page"])
+                improved += 1
+    return improved

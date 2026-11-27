@@ -22,30 +22,53 @@ PDFs ──extract──► page text ──chunk──► SQLite (FTS5/BM25) �
 * `psai/ingest.py` – **re-runnable**. A book is reprocessed only when its PDF hash changes; page text is
   cached in `data/pages/`, so adding the three missing books later is just dropping the PDFs in and re-running.
 * `psai/search.py` – BM25 over the stemmed index, several queries merged by reciprocal-rank fusion.
-* `psai/answer.py` – Claude gets only the retrieved passages. Guardrails: nothing found → fixed
+* `psai/llm.py` – one JSON-generation call over Claude on Vertex, Gemini on Vertex, or the Anthropic API.
+* `psai/answer.py` – the model gets only the retrieved passages. Guardrails: nothing found → fixed
   "he did not address this" reply; every quotation is verified word for word against the cited passage
   and dropped if not; an answer with no verifiable quote is withheld; never first person; priest/crisis pointers.
 * `psai/server.py` + `psai/web/index.html` – RTL Arabic page with the AI notice, quotes with citations,
   expandable source passages, optional English rendering (labelled machine translation).
 
-## Run it
+## Run it locally
 
 ```bash
-pip install -r requirements.txt
-sudo apt install tesseract-ocr tesseract-ocr-ara        # OCR for scanned books
+pip install -r requirements-ingest.txt
+sudo apt install tesseract-ocr tesseract-ocr-ara        # free local OCR for scanned books
 
 # 1. build the private library (re-run any time; unchanged books are skipped)
 python -m psai.ingest --pdf-dir /path/to/pdfs --lang ar           # add --only "Anger" to test one book
 
-# 2. ask
-export ANTHROPIC_API_KEY=...            # required
-export PSAI_ACCESS_CODE=choose-a-code   # optional: require a code in the page
+# 2. ask (pick a model provider, see psai/llm.py)
+export ANTHROPIC_API_KEY=...            # local: Claude via the Anthropic API
 python -m psai.cli "كيف أتعامل مع الغضب؟"
+export PSAI_ACCESS_CODE=choose-a-code   # optional: require a code in the page
 uvicorn psai.server:app --host 127.0.0.1 --port 8000
 ```
 
-`PSAI_DATA` (default `./data`) sets where the library lives; `PSAI_MODEL` (default `claude-opus-5-5`) the model.
-Tests: `python -m pytest tests` (no API key or books needed).
+`PSAI_DATA` (default `./data`) is where the library lives. Tests: `python -m pytest tests` (no keys or books needed).
+
+## Google Cloud (chosen platform)
+
+| Piece | Service |
+|---|---|
+| Model | **Vertex AI**: Claude (default, `PSAI_LLM=vertex`) or Gemini (`PSAI_LLM=gemini`, set `PSAI_MODEL`) |
+| OCR | **Document AI** Enterprise Document OCR (`--ocr documentai`), far better on Arabic scans than Tesseract |
+| App | **Cloud Run** (`Dockerfile`), service account with `roles/aiplatform.user` |
+| Private library | one **Cloud Storage** bucket mounted read-only at `/data` (`library.sqlite`); the PDFs and page text never go in the image or the repo |
+
+```bash
+# better OCR for the weak pages, then rebuild (create a Document AI "Enterprise Document OCR" processor first)
+export PSAI_DOCAI_PROCESSOR=projects/PROJECT/locations/eu/processors/ID
+python -m psai.ingest --pdf-dir /path/to/pdfs --ocr documentai --reocr-below 0.6
+
+PROJECT=my-project REGION=europe-west1 BUCKET=my-psai-library ACCESS_CODE=choose ./scripts/deploy_gcp.sh
+```
+
+The deploy script creates the bucket and service account, uploads the index, and deploys Cloud Run with
+**IAM-only access** (`--no-allow-unauthenticated`). Opening it to people who only have the access code is a deliberate
+second step (see the script's last lines); keep the rights position in mind first. Claude on Vertex needs a one-time
+enable in Model Garden. The Vertex/Gemini/Document AI paths are written to the documented APIs but have not been run
+against a live project yet.
 
 ## Not built yet (designed for)
 
