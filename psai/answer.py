@@ -14,6 +14,7 @@ The result is a plain dict so a voice or avatar layer can later consume only
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
@@ -77,7 +78,7 @@ def plan(question: str) -> dict:
         "You prepare searches over Arabic books. Detect the question's language, write 2 to 4 Arabic search queries "
         "(keywords or short phrases, in the vocabulary Pope Shenouda III used, e.g. 'التوبة', 'الاتضاع') that would "
         "find passages answering it, and flag crisis=true if the message suggests grief, crisis or self-harm.",
-        question, PLAN_SCHEMA, "low", 1000,
+        question, PLAN_SCHEMA, "low", 600, role="plan",
     )
 
 
@@ -100,8 +101,11 @@ def verify_quotes(quotes: list[dict], passages: list[Passage]) -> tuple[list[dic
     return ok, dropped
 
 
+MAX_PASSAGE_CHARS = 1800  # keeps input tokens (and cost) per question bounded
+
+
 def build_context(passages: list[Passage]) -> str:
-    return "\n\n".join(f"[{i}] ({p.cite})\n{p.text}" for i, p in enumerate(passages, 1))
+    return "\n\n".join(f"[{i}] ({p.cite})\n{p.text[:MAX_PASSAGE_CHARS]}" for i, p in enumerate(passages, 1))
 
 
 @dataclass
@@ -121,7 +125,7 @@ class Result:
         return self.__dict__.copy()
 
 
-def ask(question: str, k: int = 8, con=None) -> Result:
+def ask(question: str, k: int = int(os.environ.get("PSAI_TOP_K", "6")), con=None) -> Result:
     pl = plan(question) or {"language": "ar", "search_queries_ar": [question], "crisis": False}
     lang = pl["language"]
     passages = search([question] + pl["search_queries_ar"], k=k, con=con)
@@ -130,7 +134,8 @@ def ask(question: str, k: int = 8, con=None) -> Result:
         return Result(False, lang, NOT_FOUND_AR, NOT_FOUND_EN if lang == "en" else "", [], [], pl["crisis"], ["no passages"])
 
     user = f"Question ({lang}):\n{question}\n\nPassages:\n\n{build_context(passages)}"
-    out = llm.generate_json(SYSTEM_PROMPT, user, ANSWER_SCHEMA, "medium", 6000)
+    out = llm.generate_json(SYSTEM_PROMPT, user, ANSWER_SCHEMA,
+                            os.environ.get("PSAI_EFFORT", "medium"), 3000)
     quotes, dropped = verify_quotes(out.get("quotes", []), passages)
     if dropped:
         notes.append(f"{dropped} quote(s) removed: not found word for word in the cited passage")

@@ -147,7 +147,7 @@ def ocr_claude(png: bytes, model: str | None = None) -> str:
 
     client = anthropic.Anthropic()
     msg = client.messages.create(
-        model=model or os.environ.get("PSAI_OCR_MODEL", "claude-opus-5-5"),
+        model=model or os.environ.get("PSAI_OCR_MODEL", "claude-sonnet-5-5"),
         max_tokens=8000,
         output_config={"effort": "low"},
         messages=[{

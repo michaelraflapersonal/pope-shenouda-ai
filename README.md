@@ -45,13 +45,13 @@ export PSAI_ACCESS_CODE=choose-a-code   # optional: require a code in the page
 uvicorn psai.server:app --host 127.0.0.1 --port 8000
 ```
 
-`PSAI_DATA` (default `./data`) is where the library lives. Tests: `python -m pytest tests` (no keys or books needed).
+`PSAI_DATA` (default `./data`) is where the library lives. Cost controls: 6 passages max (`PSAI_TOP_K`), capped passage length, medium effort (`PSAI_EFFORT`), repeat questions served from a cache, and a hard daily limit (`PSAI_DAILY_LIMIT`, default 200 questions). Tests: `python -m pytest tests` (no keys or books needed).
 
 ## Google Cloud (chosen platform)
 
 | Piece | Service |
 |---|---|
-| Model | **Vertex AI**: Claude (default, `PSAI_LLM=vertex`) or Gemini (`PSAI_LLM=gemini`, set `PSAI_MODEL`) |
+| Model | **Vertex AI**: Claude Sonnet 5.5 for answers and Haiku 5.5 for the search-planning step (default); switch with `PSAI_MODEL` / `PSAI_PLAN_MODEL` (`claude-haiku-5-5` = cheapest, `claude-opus-5-5` = best), or use Gemini with `PSAI_LLM=gemini` |
 | OCR | **Document AI** Enterprise Document OCR (`--ocr documentai`), far better on Arabic scans than Tesseract |
 | App | **Cloud Run** (`Dockerfile`), service account with `roles/aiplatform.user` |
 | Private library | one **Cloud Storage** bucket mounted read-only at `/data` (`library.sqlite`); the PDFs and page text never go in the image or the repo |
