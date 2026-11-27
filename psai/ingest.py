@@ -40,16 +40,19 @@ def sha256(path: Path) -> str:
 
 
 def cite_pages(pages: list[dict]) -> list[int]:
-    """Printed page per PDF page; fill gaps using the book's usual offset."""
-    offsets = [p["printed_page"] - p["pdf_page"] for p in pages if p["printed_page"]]
-    offset = statistics.mode(offsets) if offsets else 0
-    out = []
-    for p in pages:
-        expected = max(1, p["pdf_page"] + offset)
-        # OCR misreads page numbers; trust a printed number only if it fits the book's numbering.
-        ok = p["printed_page"] and abs(p["printed_page"] - expected) <= 1
-        out.append(p["printed_page"] if ok else expected)
-    return out
+    """Page number to cite for each PDF page.
+
+    OCR of the tiny printed page numbers is unreliable (most scans fail the consensus
+    check), so citations use the PDF page number, which anyone holding the file can
+    open and verify. A book's printed numbering is used only when most detected numbers
+    agree on one offset from the PDF page (a clean text layer).
+    """
+    detected = [p["printed_page"] - p["pdf_page"] for p in pages if p["printed_page"]]
+    if detected:
+        offset, votes = statistics.mode(detected), detected.count(statistics.mode(detected))
+        if votes >= max(5, 0.6 * len(detected)):
+            return [max(1, p["pdf_page"] + offset) for p in pages]
+    return [p["pdf_page"] for p in pages]
 
 
 def chunk_pages(pages: list[dict]) -> list[dict]:

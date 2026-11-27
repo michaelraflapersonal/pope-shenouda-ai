@@ -21,6 +21,7 @@ PDFs ──extract──► page text ──chunk──► SQLite (FTS5/BM25) �
   Most Arabic books are image scans, so OCR is the common path (about 0.3 s/page on 4 cores).
 * `psai/ingest.py` – **re-runnable**. A book is reprocessed only when its PDF hash changes; page text is
   cached in `data/pages/`, so adding the three missing books later is just dropping the PDFs in and re-running.
+* Citations use the **PDF page number** (OCR of printed page numbers is unreliable, and anyone holding the file can verify it); a book's printed numbering is used only when the detected numbers agree.
 * `psai/search.py` – BM25 over the stemmed index, several queries merged by reciprocal-rank fusion.
 * `psai/llm.py` – one JSON-generation call over Claude on Vertex, Gemini on Vertex, or the Anthropic API.
 * `psai/answer.py` – the model gets only the retrieved passages. Guardrails: nothing found → fixed
@@ -79,3 +80,10 @@ against a live project yet.
   and a "report this answer" flow.
 * OCR is raw Tesseract; pages with a low score are flagged in `books.n_low_quality` for a Claude-vision re-OCR
   (`--ocr claude --force`) or human proofreading. Scripture references are the weakest part of OCR output.
+
+### Reaching the private deployment
+
+The service is IAM-only, so a browser cannot open its URL directly. As a project owner, run
+`gcloud run services proxy psai --project PROJECT --region REGION --port 8080` and open http://localhost:8080.
+Claude on Vertex AI starts with zero quota in a new project: request it under IAM & Admin > Quotas
+(`anthropic-claude-sonnet` / `-haiku`, global) before the first question will answer.

@@ -24,6 +24,6 @@ gcloud run deploy psai --project "$PROJECT" --region "$REGION" --source . \
   --add-volume name=lib,type=cloud-storage,bucket="$BUCKET",readonly=true \
   --add-volume-mount volume=lib,mount-path=/data \
   --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=global,PSAI_ACCESS_CODE=${ACCESS_CODE:-}" \
-  --no-allow-unauthenticated
+  --no-allow-unauthenticated --min-instances 0 --max-instances 2 --memory 512Mi -q
 echo "Deployed with IAM-only access. To let people use it with just the access code, grant roles/run.invoker to allUsers"
 echo "(or put IAP / a Firebase-auth front in front of it). Decide deliberately: the books are copyrighted."

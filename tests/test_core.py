@@ -36,10 +36,18 @@ def test_chunks_carry_pages():
     assert ch[0]["page_from"] == 1
 
 
-def test_bad_ocr_page_number_is_ignored():
-    pages = _pages(9)
+def test_noisy_ocr_page_numbers_fall_back_to_pdf_pages():
+    pages = _pages(9)           # a few numbers disagree, no consensus offset
     pages[4]["printed_page"] = 75
-    assert cite_pages(pages)[4] == 5
+    assert cite_pages(pages) == list(range(1, 10))
+
+
+def test_consistent_printed_numbers_are_used():
+    pages = _pages(20)
+    for p in pages:
+        p["printed_page"] = p["pdf_page"] - 4      # printed numbering starts 4 pages in
+    pages[3]["printed_page"] = None
+    assert cite_pages(pages)[10] == 7 and cite_pages(pages)[3] == 1
 
 
 def test_search_and_quote_verification(tmp_path):
